@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 - **Type**: Native macOS SwiftUI app in an Xcode project.
-- **Platform**: macOS 14.0+, Swift 6.
+- **Platform**: macOS 26.0+, Swift 6. The UI uses Liquid Glass (`.glassEffect`, `GlassEffectContainer`, `.glass`/`.glassProminent` button styles), which sets the macOS 26 minimum.
 - **Purpose**: Drag-and-drop symbolic link maker. Users drop one or more `Source` files/folders and a `Link` destination folder; Sym creates absolute symlinks inside the destination using each source name.
 - **Dependencies**: No third-party dependencies, no Swift Package Manager packages.
 

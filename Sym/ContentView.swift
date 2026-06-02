@@ -14,174 +14,215 @@ struct ContentView: View {
         symlinkService.validate(sources: sources, destinationFolder: destinationFolder)
     }
 
+    private var invalidCount: Int {
+        validations.filter { !$0.isValid }.count
+    }
+
     private var canCreateLinks: Bool {
         !sources.isEmpty && destinationFolder != nil && validations.allSatisfy(\.isValid)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            header
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                dropZones
+                sourceSection
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            HStack(spacing: 16) {
+            footer
+        }
+        .background(WindowBackdrop())
+        .animation(.smooth(duration: 0.32), value: sources)
+        .animation(.smooth(duration: 0.32), value: destinationFolder)
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Sym")
+                .font(.largeTitle.weight(.bold))
+            Text("Drop sources and a destination folder to create symbolic links.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Drop zones
+
+    private var dropZones: some View {
+        GlassEffectContainer(spacing: 18) {
+            HStack(spacing: 14) {
                 DropZone(
                     title: "Source",
-                    subtitle: "Drop one or more files or folders",
-                    icon: .source,
-                    acceptedTypes: [.fileURL],
+                    prompt: "Drop files or folders",
+                    detail: sources.isEmpty ? nil : "^[\(sources.count) item](inflect: true) selected",
+                    iconKind: .source,
+                    isFilled: !sources.isEmpty,
                     onDrop: addSources
-                ) {
-                    SourceDropPreview(sources: sources)
-                }
+                )
+
+                Image(systemName: "arrow.forward")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
 
                 DropZone(
                     title: "Link",
-                    subtitle: "Drop the folder where links will be created",
-                    icon: .link,
-                    acceptedTypes: [.fileURL],
+                    prompt: "Drop a destination folder",
+                    detail: destinationFolder?.lastPathComponent,
+                    detailHelp: destinationFolder?.path(percentEncoded: false),
+                    iconKind: .link(destinationFolder),
+                    isFilled: destinationFolder != nil,
                     onDrop: setDestinationFolder
-                ) {
-                    DestinationDropPreview(destinationFolder: destinationFolder)
-                }
+                )
             }
-            .frame(minHeight: 218)
-
-            sourceList
-
-            HStack {
-                Button("Clear") {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
-                        sources.removeAll()
-                        destinationFolder = nil
-                        resultMessage = nil
-                        errorMessage = nil
-                    }
-                }
-                .disabled(sources.isEmpty && destinationFolder == nil)
-
-                Spacer()
-
-                Button("Create Link") {
-                    createLinks()
-                }
-                .keyboardShortcut(.return, modifiers: [])
-                .buttonStyle(.borderedProminent)
-                .disabled(!canCreateLinks)
-            }
-
-            statusView
-        }
-        .padding(28)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color.accentColor.opacity(0.055)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: sources)
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: destinationFolder)
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Sym")
-                .font(.largeTitle.weight(.semibold))
-            Text("Create symbolic links from dropped sources into a selected folder.")
-                .foregroundStyle(.secondary)
         }
     }
+
+    // MARK: - Source list
 
     @ViewBuilder
-    private var sourceList: some View {
+    private var sourceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Sources")
                     .font(.headline)
-
                 if !sources.isEmpty {
                     Text("\(sources.count)")
-                        .font(.caption.weight(.semibold))
+                        .font(.caption.weight(.semibold).monospacedDigit())
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(.quaternary.opacity(0.75), in: Capsule())
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                }
+                Spacer()
+                if invalidCount > 0 {
+                    Label("^[\(invalidCount) conflict](inflect: true)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.orange)
+                        .labelStyle(.titleAndIcon)
                 }
             }
 
-            if sources.isEmpty {
-                EmptySourceList()
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(validations) { validation in
-                            SourceRow(validation: validation) {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                    sources.removeAll { $0.id == validation.id }
-                                    resultMessage = nil
-                                    errorMessage = nil
+            Group {
+                if sources.isEmpty {
+                    EmptySourceList()
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(validations) { validation in
+                                SourceRow(validation: validation) {
+                                    removeSource(validation.id)
                                 }
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .move(edge: .top)),
+                                    removal: .opacity.combined(with: .scale(scale: 0.97))
+                                ))
                             }
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .top)),
-                                removal: .opacity.combined(with: .scale(scale: 0.96))
-                            ))
                         }
+                        .padding(8)
                     }
-                    .padding(2)
+                    .scrollContentBackground(.hidden)
                 }
-                .frame(minHeight: 156, maxHeight: 240)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Footer
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            statusLabel
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer(minLength: 12)
+
+            Button("Clear", role: .destructive) {
+                clearAll()
+            }
+            .buttonStyle(.glass)
+            .disabled(sources.isEmpty && destinationFolder == nil)
+
+            Button {
+                createLinks()
+            } label: {
+                Text("Create Link\(sources.count > 1 ? "s" : "")")
+                    .frame(minWidth: 84)
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .buttonStyle(.glassProminent)
+            .disabled(!canCreateLinks)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(.bar)
+        .overlay(alignment: .top) {
+            Divider()
         }
     }
 
     @ViewBuilder
-    private var statusView: some View {
+    private var statusLabel: some View {
         if let errorMessage {
-            Text(errorMessage)
+            Label(errorMessage, systemImage: "xmark.octagon.fill")
                 .foregroundStyle(.red)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
         } else if let resultMessage {
-            Text(resultMessage)
+            Label(resultMessage, systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
         } else if !sources.isEmpty && destinationFolder == nil {
-            Text("Choose a Link destination folder before creating links.")
+            Label("Choose a Link folder to continue.", systemImage: "info.circle")
                 .foregroundStyle(.secondary)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
-        } else if let invalid = validations.first(where: { !$0.isValid }) {
-            Text(invalid.message ?? "Resolve highlighted sources before creating links.")
-                .foregroundStyle(.red)
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+        } else if invalidCount > 0 {
+            Label("Resolve the highlighted conflicts to continue.", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        } else if canCreateLinks {
+            Label("Ready to create ^[\(sources.count) link](inflect: true).", systemImage: "checkmark")
+                .foregroundStyle(.secondary)
+        } else {
+            Label("Drop sources and a Link folder to begin.", systemImage: "arrow.down.to.line")
+                .foregroundStyle(.secondary)
         }
     }
+
+    // MARK: - Actions
 
     private func addSources(_ providers: [NSItemProvider]) -> Bool {
         loadFileURLs(from: providers) { urls in
             let newItems = urls.map(SourceItem.init(url:))
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
-                sources = uniqueSources(sources + newItems)
-                resultMessage = nil
-                errorMessage = nil
-            }
+            sources = uniqueSources(sources + newItems)
+            resultMessage = nil
+            errorMessage = nil
         }
         return true
     }
 
     private func setDestinationFolder(_ providers: [NSItemProvider]) -> Bool {
         loadFileURLs(from: providers) { urls in
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
-                destinationFolder = urls.first
-                resultMessage = nil
-                errorMessage = nil
-            }
+            destinationFolder = urls.first
+            resultMessage = nil
+            errorMessage = nil
         }
         return true
+    }
+
+    private func removeSource(_ id: SourceItem.ID) {
+        sources.removeAll { $0.id == id }
+        resultMessage = nil
+        errorMessage = nil
+    }
+
+    private func clearAll() {
+        sources.removeAll()
+        destinationFolder = nil
+        resultMessage = nil
+        errorMessage = nil
     }
 
     private func loadFileURLs(from providers: [NSItemProvider], completion: @escaping ([URL]) -> Void) {
@@ -209,179 +250,117 @@ struct ContentView: View {
 
     private func uniqueSources(_ items: [SourceItem]) -> [SourceItem] {
         var seen: Set<URL> = []
-        return items.filter { item in
-            seen.insert(item.url).inserted
-        }
+        return items.filter { seen.insert($0.url).inserted }
     }
 
     private func createLinks() {
         do {
             let result = try symlinkService.createLinks(sources: sources, in: destinationFolder)
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-                resultMessage = "Created \(result.created.count) link\(result.created.count == 1 ? "" : "s")."
-                errorMessage = nil
-            }
+            resultMessage = "Created ^[\(result.created.count) link](inflect: true)."
+            errorMessage = nil
         } catch {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-                resultMessage = nil
-                errorMessage = error.localizedDescription
-            }
+            resultMessage = nil
+            errorMessage = error.localizedDescription
         }
     }
 }
 
-private struct DropZone<Accessory: View>: View {
+// MARK: - Window backdrop
+
+/// Lets the desktop show through the window so the Liquid Glass surfaces have
+/// something to refract. Falls back to the standard window material everywhere else.
+private struct WindowBackdrop: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+// MARK: - Drop zone
+
+private enum DropZoneIconKind {
+    case source
+    case link(URL?)
+}
+
+private struct DropZone: View {
     let title: String
-    let subtitle: String
-    let icon: DropZoneIcon
-    let acceptedTypes: [UTType]
+    let prompt: String
+    var detail: String?
+    var detailHelp: String?
+    let iconKind: DropZoneIconKind
+    let isFilled: Bool
     let onDrop: ([NSItemProvider]) -> Bool
-    @ViewBuilder let accessory: Accessory
 
     @State private var isTargeted = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                DropZoneIconView(icon: icon)
-                    .frame(width: 42, height: 42)
-                    .background(
-                        Circle()
-                            .fill(isTargeted ? Color.accentColor.opacity(0.14) : Color.secondary.opacity(0.07))
-                    )
-                    .scaleEffect(isTargeted ? 1.08 : 1)
+        VStack(spacing: 12) {
+            icon
+                .frame(width: 52, height: 52)
+                .scaleEffect(isTargeted ? 1.12 : 1)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.title3.weight(.semibold))
-                    Text(subtitle)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            accessory
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(isTargeted ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.055))
-                .shadow(color: isTargeted ? Color.accentColor.opacity(0.2) : .clear, radius: 14, y: 7)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(
-                    isTargeted ? Color.accentColor : Color.secondary.opacity(0.14),
-                    lineWidth: isTargeted ? 2 : 1
-                )
-        }
-        .scaleEffect(isTargeted ? 1.015 : 1)
-        .animation(.spring(response: 0.26, dampingFraction: 0.78), value: isTargeted)
-        .onDrop(of: acceptedTypes, isTargeted: $isTargeted, perform: onDrop)
-    }
-}
-
-private struct SourceDropPreview: View {
-    let sources: [SourceItem]
-
-    var body: some View {
-        if sources.isEmpty {
-            DropPrompt(text: "No sources selected")
-        } else {
-            VStack(alignment: .leading, spacing: 7) {
-                ForEach(Array(sources.prefix(4))) { source in
-                    MiniSourceRow(source: source)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-
-                if sources.count > 4 {
-                    Text("+ \(sources.count - 4) more")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 8)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-            }
-            .padding(.top, 2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-private struct DestinationDropPreview: View {
-    let destinationFolder: URL?
-
-    var body: some View {
-        if let destinationFolder {
-            HStack(spacing: 9) {
-                NativeFileIcon(url: destinationFolder, size: 22, fallback: .folder)
-                Text(destinationFolder.path(percentEncoded: false))
+            VStack(spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                Text(detail ?? prompt)
+                    .font(.subheadline)
+                    .foregroundStyle(isFilled ? .primary : .secondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
-                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
-            .font(.callout)
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
-            .transition(.opacity.combined(with: .move(edge: .top)))
-        } else {
-            DropPrompt(text: "No folder selected")
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 148)
+        .padding(.horizontal, 12)
+        .glassEffect(
+            isTargeted ? .regular.tint(.accentColor.opacity(0.35)).interactive() : .regular,
+            in: .rect(cornerRadius: 18)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(
+                    isTargeted ? Color.accentColor : Color.secondary.opacity(isFilled ? 0 : 0.35),
+                    style: StrokeStyle(lineWidth: isTargeted ? 2 : 1.5, dash: isFilled ? [] : [7, 5])
+                )
+                .opacity(isTargeted || !isFilled ? 1 : 0)
+        }
+        .help(detailHelp ?? "")
+        .animation(.snappy(duration: 0.22), value: isTargeted)
+        .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: onDrop)
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        switch iconKind {
+        case .source:
+            NativeFileIcon(url: nil, fallback: .folder)
+        case let .link(url):
+            NativeFileIcon(url: url, fallback: .folder)
         }
     }
 }
 
-private struct DropPrompt: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.top, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct MiniSourceRow: View {
-    let source: SourceItem
-
-    var body: some View {
-        HStack(spacing: 9) {
-            NativeFileIcon(url: source.url, size: 22, fallback: isDirectory(source.url) ? .folder : .file)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(source.name)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                Text(source.url.deletingLastPathComponent().path(percentEncoded: false))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
-    }
-}
+// MARK: - Source list rows
 
 private struct EmptySourceList: View {
     var body: some View {
-        VStack(spacing: 8) {
-            NativeFileIcon(url: nil, size: 30, fallback: .folder)
-                .opacity(0.72)
-            Text("Drop files or folders into Source to begin.")
+        VStack(spacing: 10) {
+            Image(systemName: "tray.and.arrow.down")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(.tertiary)
+            Text("Dropped files and folders appear here.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 126, alignment: .center)
-        .background(Color.secondary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.secondary.opacity(0.12))
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
     }
 }
 
@@ -389,71 +368,73 @@ private struct SourceRow: View {
     let validation: SourceValidation
     let onRemove: () -> Void
 
+    @State private var isHovering = false
+
+    private var isValid: Bool { validation.isValid }
+
     var body: some View {
         HStack(spacing: 12) {
             ZStack(alignment: .bottomTrailing) {
-                NativeFileIcon(url: validation.source.url, size: 34, fallback: isDirectory(validation.source.url) ? .folder : .file)
-                    .frame(width: 38, height: 38)
-                    .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
+                NativeFileIcon(
+                    url: validation.source.url,
+                    fallback: isDirectory(validation.source.url) ? .folder : .file
+                )
+                .frame(width: 32, height: 32)
 
-                Image(systemName: validation.isValid ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(validation.isValid ? .green : .red)
-                    .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
+                Image(systemName: isValid ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white, isValid ? Color.green : Color.orange)
+                    .background(Circle().fill(.background))
+                    .offset(x: 3, y: 3)
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(validation.source.name)
                     .font(.body.weight(.medium))
-                Text(validation.proposedLinkURL?.path(percentEncoded: false) ?? validation.source.url.path(percentEncoded: false))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let message = validation.message {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
+
+                Text(detailText)
+                    .font(.caption)
+                    .foregroundStyle(isValid ? Color.secondary : Color.orange)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
             Button(action: onRemove) {
-                Image(systemName: "xmark")
+                Image(systemName: "xmark.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .opacity(isHovering ? 1 : 0.35)
             .help("Remove source")
         }
-        .padding(12)
-        .background(validation.isValid ? Color.secondary.opacity(0.055) : Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 11)
+                .fill(isValid ? AnyShapeStyle(.quaternary.opacity(0.5)) : AnyShapeStyle(Color.orange.opacity(0.12)))
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(validation.isValid ? Color.secondary.opacity(0.1) : Color.red.opacity(0.24))
+            RoundedRectangle(cornerRadius: 11)
+                .strokeBorder(isValid ? Color.clear : Color.orange.opacity(0.4))
         }
+        .onHover { isHovering = $0 }
+    }
+
+    private var detailText: String {
+        if let message = validation.message {
+            return message
+        }
+        return validation.proposedLinkURL?.path(percentEncoded: false)
+            ?? validation.source.url.path(percentEncoded: false)
     }
 }
 
-private enum DropZoneIcon {
-    case source
-    case link
-}
-
-private struct DropZoneIconView: View {
-    let icon: DropZoneIcon
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            NativeFileIcon(url: nil, size: 30, fallback: .folder)
-
-            Image(systemName: icon == .source ? "plus.circle.fill" : "link.circle.fill")
-                .font(.caption)
-                .foregroundStyle(Color.accentColor)
-                .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
-                .offset(x: 2, y: 2)
-        }
-    }
-}
+// MARK: - Native file icon
 
 private struct NativeFileIcon: View {
     enum Fallback {
@@ -462,21 +443,18 @@ private struct NativeFileIcon: View {
     }
 
     let url: URL?
-    let size: CGFloat
     let fallback: Fallback
 
     var body: some View {
         Image(nsImage: icon)
             .resizable()
             .aspectRatio(contentMode: .fit)
-            .frame(width: size, height: size)
     }
 
     private var icon: NSImage {
-        if let url {
+        if let url, FileManager.default.fileExists(atPath: url.path) {
             return NSWorkspace.shared.icon(forFile: url.path)
         }
-
         return NSWorkspace.shared.icon(for: fallback == .folder ? .folder : .item)
     }
 }
@@ -495,8 +473,6 @@ private final class DropURLCollector: @unchecked Sendable {
     }
 
     func append(_ url: URL) {
-        lock.withLock {
-            collectedURLs.append(url)
-        }
+        lock.withLock { collectedURLs.append(url) }
     }
 }
