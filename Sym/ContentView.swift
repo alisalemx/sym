@@ -59,7 +59,7 @@ struct ContentView: View {
                     title: "Source",
                     prompt: "Drop files or folders",
                     detail: sources.isEmpty ? nil : "^[\(sources.count) item](inflect: true) selected",
-                    iconKind: .source,
+                    iconKind: .source(sources.map(\.url)),
                     isFilled: !sources.isEmpty,
                     onDrop: addSources
                 )
@@ -284,7 +284,7 @@ private struct WindowBackdrop: NSViewRepresentable {
 // MARK: - Drop zone
 
 private enum DropZoneIconKind {
-    case source
+    case source([URL])
     case link(URL?)
 }
 
@@ -338,11 +338,19 @@ private struct DropZone: View {
 
     @ViewBuilder
     private var icon: some View {
-        switch iconKind {
-        case .source:
-            NativeFileIcon(url: nil, fallback: .folder)
-        case let .link(url):
-            NativeFileIcon(url: url, fallback: .folder)
+        if isFilled {
+            switch iconKind {
+            case let .source(urls):
+                NativeFileIcon(url: urls.first, fallback: .folder)
+            case let .link(url):
+                NativeFileIcon(url: url, fallback: .folder)
+            }
+        } else {
+            Image(systemName: "plus")
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(.secondary)
+                .frame(width: 52, height: 52)
+                .background(Circle().fill(.secondary.opacity(0.12)))
         }
     }
 }
