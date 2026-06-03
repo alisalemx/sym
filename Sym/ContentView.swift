@@ -22,116 +22,60 @@ struct ContentView: View {
         !sources.isEmpty && destinationFolder != nil && validations.allSatisfy(\.isValid)
     }
 
+    private var showsFooter: Bool {
+        !sources.isEmpty || destinationFolder != nil || resultMessage != nil || errorMessage != nil
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                dropZones
-                sourceSection
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Top: a band the height of the titlebar, with "Sym" centered in it (this
+        // is left untouched). Sides/bottom: their own smaller inset.
+        GeometryReader { proxy in
+            let titlebarHeight = max(proxy.safeAreaInsets.top, 28)
 
-            footer
-        }
-        .background(WindowBackdrop())
-        .animation(.smooth(duration: 0.32), value: sources)
-        .animation(.smooth(duration: 0.32), value: destinationFolder)
-    }
+            VStack(spacing: 0) {
+                Text("Sym")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: titlebarHeight)
 
-    // MARK: - Header
+                VStack(alignment: .leading, spacing: 14) {
+                    GlassEffectContainer(spacing: 14) {
+                        VStack(spacing: 14) {
+                            SourceSurface(
+                                validations: validations,
+                                invalidCount: invalidCount,
+                                onDrop: addSources,
+                                onChoose: chooseSources,
+                                onRemove: removeSource
+                            )
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Sym")
-                .font(.largeTitle.weight(.bold))
-            Text("Drop sources and a destination folder to create symbolic links.")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: - Drop zones
-
-    private var dropZones: some View {
-        GlassEffectContainer(spacing: 18) {
-            HStack(spacing: 14) {
-                DropZone(
-                    title: "Source",
-                    prompt: "Drop files or folders",
-                    detail: sources.isEmpty ? nil : "^[\(sources.count) item](inflect: true) selected",
-                    iconKind: .source(sources.map(\.url)),
-                    isFilled: !sources.isEmpty,
-                    onDrop: addSources
-                )
-
-                Image(systemName: "arrow.forward")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-
-                DropZone(
-                    title: "Link",
-                    prompt: "Drop a destination folder",
-                    detail: destinationFolder?.lastPathComponent,
-                    detailHelp: destinationFolder?.path(percentEncoded: false),
-                    iconKind: .link(destinationFolder),
-                    isFilled: destinationFolder != nil,
-                    onDrop: setDestinationFolder
-                )
-            }
-        }
-    }
-
-    // MARK: - Source list
-
-    @ViewBuilder
-    private var sourceSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Sources")
-                    .font(.headline)
-                if !sources.isEmpty {
-                    Text("\(sources.count)")
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: Capsule())
-                }
-                Spacer()
-                if invalidCount > 0 {
-                    Label("^[\(invalidCount) conflict](inflect: true)", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.orange)
-                        .labelStyle(.titleAndIcon)
-                }
-            }
-
-            Group {
-                if sources.isEmpty {
-                    EmptySourceList()
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 6) {
-                            ForEach(validations) { validation in
-                                SourceRow(validation: validation) {
-                                    removeSource(validation.id)
-                                }
-                                .transition(.asymmetric(
-                                    insertion: .opacity.combined(with: .move(edge: .top)),
-                                    removal: .opacity.combined(with: .scale(scale: 0.97))
-                                ))
+                            // Step 2 — revealed once at least one source is added.
+                            if !sources.isEmpty {
+                                LinkBar(
+                                    destinationFolder: destinationFolder,
+                                    onDrop: setDestinationFolder,
+                                    onChoose: chooseDestination,
+                                    onClear: clearDestination
+                                )
+                                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
                             }
                         }
-                        .padding(8)
                     }
-                    .scrollContentBackground(.hidden)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                    // Only present once there's something to act on or report, so the
+                    // empty state keeps an even gap below the card.
+                    if showsFooter {
+                        footer
+                    }
                 }
+                .padding([.horizontal, .bottom], 22)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            .ignoresSafeArea()
+            .background(WindowBackdrop().ignoresSafeArea())
+            .animation(.smooth(duration: 0.32), value: sources)
+            .animation(.smooth(duration: 0.32), value: destinationFolder)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Footer
@@ -144,28 +88,29 @@ struct ContentView: View {
 
             Spacer(minLength: 12)
 
-            Button("Clear", role: .destructive) {
-                clearAll()
+            if !sources.isEmpty || destinationFolder != nil {
+                Button("Clear", role: .destructive) {
+                    clearAll()
+                }
+                .buttonStyle(.glass)
+                .transition(.opacity)
             }
-            .buttonStyle(.glass)
-            .disabled(sources.isEmpty && destinationFolder == nil)
 
-            Button {
-                createLinks()
-            } label: {
-                Text("Create Link\(sources.count > 1 ? "s" : "")")
-                    .frame(minWidth: 84)
+            // Step 3 — the action appears once a destination is chosen.
+            if destinationFolder != nil {
+                Button {
+                    createLinks()
+                } label: {
+                    Text("Create Link\(sources.count > 1 ? "s" : "")")
+                        .frame(minWidth: 84)
+                }
+                .keyboardShortcut(.return, modifiers: [])
+                .buttonStyle(.glassProminent)
+                .disabled(!canCreateLinks)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
-            .keyboardShortcut(.return, modifiers: [])
-            .buttonStyle(.glassProminent)
-            .disabled(!canCreateLinks)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
-        .background(.bar)
-        .overlay(alignment: .top) {
-            Divider()
-        }
+        .padding(.horizontal, 4)
     }
 
     @ViewBuilder
@@ -176,18 +121,6 @@ struct ContentView: View {
         } else if let resultMessage {
             Label(resultMessage, systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
-        } else if !sources.isEmpty && destinationFolder == nil {
-            Label("Choose a Link folder to continue.", systemImage: "info.circle")
-                .foregroundStyle(.secondary)
-        } else if invalidCount > 0 {
-            Label("Resolve the highlighted conflicts to continue.", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-        } else if canCreateLinks {
-            Label("Ready to create ^[\(sources.count) link](inflect: true).", systemImage: "checkmark")
-                .foregroundStyle(.secondary)
-        } else {
-            Label("Drop sources and a Link folder to begin.", systemImage: "arrow.down.to.line")
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -212,8 +145,44 @@ struct ContentView: View {
         return true
     }
 
+    private func chooseSources() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose files or folders to link."
+        panel.prompt = "Add"
+
+        guard panel.runModal() == .OK else { return }
+        let newItems = panel.urls.map(SourceItem.init(url:))
+        sources = uniqueSources(sources + newItems)
+        resultMessage = nil
+        errorMessage = nil
+    }
+
+    private func chooseDestination() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.message = "Choose a destination folder for the links."
+        panel.prompt = "Choose"
+
+        guard panel.runModal() == .OK else { return }
+        destinationFolder = panel.urls.first
+        resultMessage = nil
+        errorMessage = nil
+    }
+
     private func removeSource(_ id: SourceItem.ID) {
         sources.removeAll { $0.id == id }
+        resultMessage = nil
+        errorMessage = nil
+    }
+
+    private func clearDestination() {
+        destinationFolder = nil
         resultMessage = nil
         errorMessage = nil
     }
@@ -271,67 +240,226 @@ struct ContentView: View {
 /// something to refract. Falls back to the standard window material everywhere else.
 private struct WindowBackdrop: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
-        let view = NSVisualEffectView()
-        view.material = .underWindowBackground
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
+        BackdropView()
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
-// MARK: - Drop zone
+/// A backdrop that also configures its host window once attached. Doing this in
+/// `viewDidMoveToWindow` (rather than `updateNSView`) guarantees the window
+/// exists — making it feel chromeless while keeping the visible "Sym" title.
+private final class BackdropView: NSVisualEffectView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        material = .underWindowBackground
+        blendingMode = .behindWindow
+        state = .active
+    }
 
-private enum DropZoneIconKind {
-    case source([URL])
-    case link(URL?)
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        // `.hiddenTitleBar` already gives us a transparent, full-size-content
+        // titlebar. Keep the window titled "Sym" for the OS (Window menu, Mission
+        // Control) but hide the system title text — it draws left-aligned next to
+        // the traffic lights, and we render our own centered "Sym" instead.
+        window.title = "Sym"
+        window.titleVisibility = .hidden
+        window.isOpaque = false
+        window.backgroundColor = .clear
+    }
 }
 
-private struct DropZone: View {
-    let title: String
-    let prompt: String
-    var detail: String?
-    var detailHelp: String?
-    let iconKind: DropZoneIconKind
-    let isFilled: Bool
+// MARK: - Source surface
+
+/// The single large surface that is both the source drop target and the list of
+/// dropped items. Empty, it invites a drop; filled, it shows one row per source.
+private struct SourceSurface: View {
+    let validations: [SourceValidation]
+    let invalidCount: Int
     let onDrop: ([NSItemProvider]) -> Bool
+    let onChoose: () -> Void
+    let onRemove: (SourceValidation.ID) -> Void
 
     @State private var isTargeted = false
 
-    var body: some View {
-        VStack(spacing: 12) {
-            icon
-                .frame(width: 52, height: 52)
-                .scaleEffect(isTargeted ? 1.12 : 1)
+    private var isEmpty: Bool { validations.isEmpty }
 
-            VStack(spacing: 3) {
-                Text(title)
-                    .font(.headline)
-                Text(detail ?? prompt)
-                    .font(.subheadline)
-                    .foregroundStyle(isFilled ? .primary : .secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .multilineTextAlignment(.center)
-            }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            content
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 148)
-        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .glassEffect(
             isTargeted ? .regular.tint(.accentColor.opacity(0.35)).interactive() : .regular,
-            in: .rect(cornerRadius: 18)
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(
-                    isTargeted ? Color.accentColor : Color.secondary.opacity(isFilled ? 0 : 0.35),
-                    style: StrokeStyle(lineWidth: isTargeted ? 2 : 1.5, dash: isFilled ? [] : [7, 5])
-                )
-                .opacity(isTargeted || !isFilled ? 1 : 0)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(isTargeted ? 1 : 0)
         }
-        .help(detailHelp ?? "")
+        .animation(.snappy(duration: 0.22), value: isTargeted)
+        .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: onDrop)
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Source")
+                .font(.headline)
+            if !isEmpty {
+                Text("\(validations.count)")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
+            }
+            Spacer()
+            if invalidCount > 0 {
+                Label("^[\(invalidCount) conflict](inflect: true)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .labelStyle(.titleAndIcon)
+            }
+            if !isEmpty {
+                Button(action: onChoose) {
+                    Label("Add", systemImage: "plus")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .pointerStyle(.link)
+                .help("Add more files or folders")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, isEmpty ? 0 : 10)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isEmpty {
+            emptyState
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(validations) { validation in
+                        SourceRow(validation: validation) {
+                            onRemove(validation.id)
+                        }
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity.combined(with: .scale(scale: 0.97))
+                        ))
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            }
+            .scrollContentBackground(.hidden)
+        }
+    }
+
+    private var emptyState: some View {
+        Button(action: onChoose) {
+            VStack(spacing: 12) {
+                Image(systemName: "plus")
+                    .font(.system(size: 24, weight: .light))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52, height: 52)
+                    .background(Circle().fill(.secondary.opacity(0.12)))
+                    .scaleEffect(isTargeted ? 1.12 : 1)
+
+                VStack(spacing: 3) {
+                    Text("Drop or click to add files or folders")
+                        .font(.headline)
+                    Text("Each one becomes a symbolic link in the Link folder.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .padding(24)
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .pointerStyle(.link)
+        .help("Choose files or folders")
+    }
+}
+
+// MARK: - Link bar
+
+/// The compact destination control: a single row that names the Link folder and
+/// acts as its drop target. Sits below Source, the last choice before creating.
+private struct LinkBar: View {
+    let destinationFolder: URL?
+    let onDrop: ([NSItemProvider]) -> Bool
+    let onChoose: () -> Void
+    let onClear: () -> Void
+
+    @State private var isTargeted = false
+
+    private var isFilled: Bool { destinationFolder != nil }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onChoose) {
+                HStack(spacing: 12) {
+                    icon
+                        .frame(width: 30, height: 30)
+                        .scaleEffect(isTargeted ? 1.12 : 1)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Link")
+                            .font(.subheadline.weight(.semibold))
+                        Text(destinationFolder?.path(percentEncoded: false) ?? "Drop or click to choose a destination folder")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer(minLength: 8)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+            .pointerStyle(.link)
+
+            if isFilled {
+                Button(action: onClear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove Link folder")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .glassEffect(
+            isTargeted ? .regular.tint(.accentColor.opacity(0.35)).interactive() : .regular,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(isTargeted ? 1 : 0)
+        }
+        .help(destinationFolder?.path(percentEncoded: false) ?? "")
         .animation(.snappy(duration: 0.22), value: isTargeted)
         .onDrop(of: [.fileURL], isTargeted: $isTargeted, perform: onDrop)
     }
@@ -339,38 +467,18 @@ private struct DropZone: View {
     @ViewBuilder
     private var icon: some View {
         if isFilled {
-            switch iconKind {
-            case let .source(urls):
-                NativeFileIcon(url: urls.first, fallback: .folder)
-            case let .link(url):
-                NativeFileIcon(url: url, fallback: .folder)
-            }
+            NativeFileIcon(url: destinationFolder, fallback: .folder)
         } else {
             Image(systemName: "plus")
-                .font(.system(size: 24, weight: .light))
+                .font(.system(size: 15, weight: .light))
                 .foregroundStyle(.secondary)
-                .frame(width: 52, height: 52)
+                .frame(width: 30, height: 30)
                 .background(Circle().fill(.secondary.opacity(0.12)))
         }
     }
 }
 
 // MARK: - Source list rows
-
-private struct EmptySourceList: View {
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "tray.and.arrow.down")
-                .font(.system(size: 30, weight: .light))
-                .foregroundStyle(.tertiary)
-            Text("Dropped files and folders appear here.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
-    }
-}
 
 private struct SourceRow: View {
     let validation: SourceValidation

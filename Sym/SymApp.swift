@@ -5,8 +5,9 @@ struct SymApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 720, minHeight: 520)
+                .frame(minWidth: 440, minHeight: 380)
         }
+        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
     }
 }
